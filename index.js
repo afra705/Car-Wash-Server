@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config';
 
 const app = express();
@@ -46,24 +46,102 @@ app.get('/', (req, res) => {
 app.post('/services', async (req, res) => {
   try {
     const data = req.body;
-    const result = await servicesCollection.insertOne(data);
+
+    const result = await servicesCollection.insertOne({
+      ...data,
+      createdBy: data.createdBy,
+      createdAt: new Date(),
+    });
 
     res.status(201).send(result);
   } catch (error) {
+    console.error('ADD SERVICE ERROR:', error);
     res.status(500).send({ message: 'Failed to add service' });
+  }
+});
+// Get all public services added by branch managers
+app.get('/services/public', async (req, res) => {
+  try {
+    // Better Auth stores users in the `user` collection, but older
+    // versions of this API used `users`, so check both.
+    const [authUsers, legacyUsers] = await Promise.all([
+      db.collection('user').distinct('email', { role: 'branchManager' }),
+      usersCollection.distinct('email', { role: 'branchManager' }),
+    ]);
+
+    const managerEmails = [...new Set([...authUsers, ...legacyUsers])];
+
+    const services = await servicesCollection
+      .find({
+        status: 'active',
+        $or: [
+          { createdBy: { $in: managerEmails } },
+          { createdBy: { $exists: false } },
+          { createdBy: null },
+          { createdBy: '' },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send(services);
+  } catch (error) {
+    console.error('GET PUBLIC SERVICES ERROR:', error);
+    res.status(500).send({
+      message: 'Failed to fetch services',
+    });
+  }
+});
+
+// Get a single service by id
+app.get('/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: 'Invalid service id' });
+    }
+
+    const service = await servicesCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!service) {
+      return res.status(404).send({ message: 'Service not found' });
+    }
+
+    res.send(service);
+  } catch (error) {
+    console.error('GET SERVICE ERROR:', error);
+    res.status(500).send({
+      message: 'Failed to fetch service',
+    });
   }
 });
 
 // Get all services
 app.get('/services', async (req, res) => {
   try {
-    const services = await servicesCollection.find({}).toArray();
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).send({
+        message: 'User email is required',
+      });
+    }
+
+    const services = await servicesCollection
+      .find({ createdBy: email })
+      .toArray();
+
     res.send(services);
   } catch (error) {
-    res.status(500).send({ message: 'Failed to fetch services' });
+    console.error('GET SERVICES ERROR:', error);
+    res.status(500).send({
+      message: 'Failed to fetch services',
+    });
   }
 });
- 
 
 
 
