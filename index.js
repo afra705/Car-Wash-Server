@@ -143,7 +143,27 @@ app.get('/services', async (req, res) => {
   }
 });
 
+// payments
+app.post('create-checkout-session', async(req, res)=>{
+  const payload = req.body;
+  const service = servicesCollection.findOne({_id:payload.serviceId})
 
+    if(!service){
+      throw new error('service not found')
+    }
+  // step2: create a booking in the database with status 'pending
+  const booking ={
+    serviceId: payload.serviceId,
+    userEmail: payload.userEmail,
+    status: 'pending',
+    createdAt: new Date()
+  }
+  const bookingCreateResult = await bookingsCollection.insertOne(booking)
+
+  // 
+
+
+})
 
 
 
