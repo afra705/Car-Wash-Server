@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config';
+import { stripe } from './config/stripe.js';
 
 const app = express();
 const port = 5000;
@@ -146,7 +147,10 @@ app.get('/services', async (req, res) => {
 // payments
 app.post('create-checkout-session', async(req, res)=>{
   const payload = req.body;
-  const service = servicesCollection.findOne({_id:payload.serviceId})
+ const service = await servicesCollection.findOne({
+  _id: new ObjectId(payload.serviceId),
+});
+
 
     if(!service){
       throw new error('service not found')
@@ -160,8 +164,36 @@ app.post('create-checkout-session', async(req, res)=>{
   }
   const bookingCreateResult = await bookingsCollection.insertOne(booking)
 
-  // 
+  // create a stripe checkout session
+  const session = await stripe.checkout.sessions.create({
+    line_items:[
+      {
+        price_data:{
+          currency: 'usd',
+          product_data:{
+            name: service.serviceName,
+            description:service.description,
+            
+          },
+          unit_amount: service.price * 0.00804 * 100, //convert usd to bdt
+          quantity: 1
+        },
+      }
+    ],
 
+    success_url: `${process.env.CLIENT_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.CLIENT_URL}/checkout/cancel`,
+    mode: 'payment',
+    metadata:{
+      bookingId: bookingCreateResult.insertedId.toString(),
+      userId: payload.userId,
+    }
+  })
+console.log(session, 'session');
+res.send({
+  success: true,
+  url: session.url,
+});
 
 })
 
